@@ -432,6 +432,16 @@
     "@ethersproject/logger" "^5.5.0"
     hash.js "1.1.7"
 
+"@gokiprotocol/client@^0.10.2":
+  version "0.10.2"
+  resolved "https://registry.yarnpkg.com/@gokiprotocol/client/-/client-0.10.2.tgz#1b0e07403c477ebd9f80757ffae3a52cf1c44c36"
+  integrity sha512-akCt8zUpUupBV2fjfT4SK9BpK8h1WGaR50wwMFWIU/aZLRdovyow40vRqvX4lASsjl5LetaEca/1JPv9MBbvHw==
+  dependencies:
+    lodash.mapvalues "^4.6.0"
+    superstruct "^0.15.4"
+    tiny-invariant "^1.2.0"
+    tslib "^2.3.1"
+
 "@humanwhocodes/config-array@^0.9.2":
   version "0.9.3"
   resolved "https://registry.yarnpkg.com/@humanwhocodes/config-array/-/config-array-0.9.3.tgz#f2564c744b387775b436418491f15fce6601f63e"
@@ -1193,6 +1203,24 @@
   version "1.1.2"
   resolved "https://registry.yarnpkg.com/@tootallnate/once/-/once-1.1.2.tgz#ccb91445360179a04e7fe6aff78c00ffc1eeaf82"
   integrity sha512-RbzJvlNzmRq5c3O09UipeuXno4tA1FE6ikOjxZK0tuxVv3412l64l5t1W5pj4+rJq9vpkm/kwiR07aZXnsKPxw==
+
+"@tribecahq/registry@^0.2.2":
+  version "0.2.2"
+  resolved "https://registry.yarnpkg.com/@tribecahq/registry/-/registry-0.2.2.tgz#077900b286c9ac4104fb4ddc6df76edd90649599"
+  integrity sha512-b5a5joKNpz+9U0LP9iCvk/rOzX4EZKsm9utWVjr40+Ung/lFK0U4kcZbajpUElU6/xbVbRlKBgGfuyL0W9Cl8A==
+  dependencies:
+    lodash "^4.17.21"
+    tiny-invariant "^1.2.0"
+    toml "^3.0.0"
+    tslib "^2.3.1"
+
+"@tribecahq/tribeca-sdk@^0.5.5":
+  version "0.5.5"
+  resolved "https://registry.yarnpkg.com/@tribecahq/tribeca-sdk/-/tribeca-sdk-0.5.5.tgz#e7452c2e114088084f3d511f72680d3bfd3aa603"
+  integrity sha512-4AwE2fDYW+Gv+0LSsw6WA7GjQ/x1w6iqR5LbnSRUHjA7HDM2v5BODgAJhOQTKBG0zQwUcpE7/TgurwlTRYGJwQ==
+  dependencies:
+    tiny-invariant "^1.2.0"
+    tslib "^2.3.1"
 
 "@tsconfig/node10@^1.0.7":
   version "1.0.8"
@@ -5601,7 +5629,7 @@ superstruct@^0.14.2:
   resolved "https://registry.yarnpkg.com/superstruct/-/superstruct-0.14.2.tgz#0dbcdf3d83676588828f1cf5ed35cda02f59025b"
   integrity sha512-nPewA6m9mR3d6k7WkZ8N8zpTWfenFH3q9pA2PkuiZxINr9DKB2+40wEQf0ixn8VaGuJ78AB6iWOtStI+/4FKZQ==
 
-superstruct@^0.15.2:
+superstruct@^0.15.2, superstruct@^0.15.4:
   version "0.15.4"
   resolved "https://registry.yarnpkg.com/superstruct/-/superstruct-0.15.4.tgz#e3381dd84ca07e704e19f69eda74eee1a5efb1f9"
   integrity sha512-eOoMeSbP9ZJChNOm/9RYjE+F36rYR966AAqeG3xhQB02j2sfAUXDp4EQ/7bAOqnlJnuFDB8yvOu50SocvKpUEw==

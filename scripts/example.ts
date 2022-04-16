@@ -1,78 +1,83 @@
+import { Connection, PublicKey, Keypair } from '@solana/web3.js';
+
+import { TribecaSDK, findGovernorAddress, GovernorWrapper } from '@tribecahq/tribeca-sdk';
+import {  } from '@tribecahq/registry';
+import { Provider } from '@project-serum/anchor';
 import {
-  getAllProposals,
-  getAllTokenOwnerRecords,
-  getRealms,
-} from '@solana/spl-governance';
-import { Connection, PublicKey } from '@solana/web3.js';
+  SolanaProvider,
+} from "@saberhq/solana-contrib";
+import { Wallet_ } from '@dialectlabs/web3';
+import BN from "bn.js";
+
+const makeSDK = (): TribecaSDK => {
+  const PRIVATE_KEY = process.env.PRIVATE_KEY;
+  const keypair: Keypair = Keypair.fromSecretKey(
+    new Uint8Array(JSON.parse(PRIVATE_KEY as string)),
+  );
+  const wallet = Wallet_.embedded(keypair.secretKey);
+  const RPC_URL = process.env.RPC_URL || 'http://localhost:8899';
+  console.log('RPC url', RPC_URL);
+  const dialectConnection = new Connection(RPC_URL, 'recent');
+  const dialectProvider = new Provider(
+    dialectConnection,
+    wallet,
+    Provider.defaultOptions(),
+  );
+
+  const provider = SolanaProvider.load({
+    connection: dialectProvider.connection,
+    sendConnection: dialectProvider.connection,
+    wallet: dialectProvider.wallet,
+    opts: dialectProvider.opts,
+  });
+  return TribecaSDK.load({
+    provider,
+  });
+};
 
 async function run() {
   const connection = new Connection(process.env.RPC_URL!);
   const programId = new PublicKey(
-    'GovER5Lthms3bLBqWub97yVrMmEogzX7xNjdXpPPCVZw',
+    'Govz1VyoyLD5BL6CSCxUJLVLsQHRwjfFj1prNsdNg5Jw',
   );
 
-  const realms = await getRealms(connection, programId);
+  const tribecaSDK = makeSDK();
 
-  console.log(realms.length);
+  // console.log(tribecaSDK);
 
-  // const programAccounts = await connection.getProgramAccounts(
-  //   programId,
-  // );
+  const sbrAddress = new PublicKey('9tnpMysuibKx6SatcH3CWR9ZsSRMBNeBf1mhfL6gAXR4');
 
-  // console.log(programAccounts);
-  // console.log(programAccounts[0].account.owner.toBase58());
+  // const sbrGov = await findGovernorAddress(sbrAddress);
 
-  // Fetch all the realms data
-  // If a realm has a new proposal -> votingProposalCount if it increases
-  // Get the new proposal(s) and tweet about it
+  // console.log('sbr address: 9tnpMysuibKx6SatcH3CWR9ZsSRMBNeBf1mhfL6gAXR4');
+  // console.log('sbrgovaddr:', sbrGov[0].toBase58());
 
-  // let promises = realms.map(realm => {
-  //   return getAllProposals(connection, programId, realm.pubkey);
-  // });
+  const govWrapper = new GovernorWrapper(tribecaSDK, sbrAddress);
 
-  // const realmsPromises = realms.map(async realm => {
-  //   return {
-  //     realm: realm,
-  //     proposals: (await getAllProposals(connection, programId, realm.pubkey)).flat(),
-  //     tokenOwnerRecords: await getAllTokenOwnerRecords(connection, programId, realm.pubkey),
-  //   };
-  // });
+  const govData = await govWrapper.data();
 
-  // await Promise.all(realmsPromises);
-  for (const realm of realms) {
-    if (realm.account.votingProposalCount > 0) {
-      console.log('name: ', realm.account.name);
-      console.log('accountType: ', realm.account.accountType);
-      console.log('votingProposalCount: ', realm.account.votingProposalCount);
-      console.log('realm all: ', realm);
+  console.log(govData.proposalCount.toNumber());
 
-      const proposals = await getAllProposals(
-        connection,
-        programId,
-        realm.pubkey,
-      );
+  // let proposals = [];
 
-      console.log('proposals', proposals);
+  // for (let i = 0; i < govData.proposalCount.toNumber(); i++) {
+  //   proposals.append(govWrapper.fetchProposal(new BN(i)));
+  // }
 
-      const tokenOwnerRecords = await getAllTokenOwnerRecords(
-        connection,
-        programId,
-        realm.pubkey,
-      );
+  const proposalPromises = [...Array(govData.proposalCount.toNumber()).keys()].map(async i =>
+    await govWrapper.findProposalAddress(new BN(i))
+  );
 
-      console.log('token owner records length: ', tokenOwnerRecords.length);
-      console.log('token owner records: ', tokenOwnerRecords);
+  const proposals = await Promise.all(proposalPromises);
 
-      for (const tokenHolder of tokenOwnerRecords) {
-        console.log(
-          'token holder address: ',
-          tokenHolder.account.governingTokenOwner.toBase58(),
-        );
-      }
+  console.log(proposals);
 
-      break;
-    }
-  }
+  // console.log(proposals[0].instructions);
+
+  const proposalMetadataPromises = proposals.slice(0, 10).map(async proposal => await govWrapper.fetchProposalMeta(proposal));
+  const proposalMetadatas = await Promise.all(proposalMetadataPromises);
+
+  console.log(proposalMetadatas);
 }
 
 run();
