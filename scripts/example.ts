@@ -16,7 +16,6 @@ const makeSDK = (): TribecaSDK => {
   );
   const wallet = Wallet_.embedded(keypair.secretKey);
   const RPC_URL = process.env.RPC_URL || 'http://localhost:8899';
-  console.log('RPC url', RPC_URL);
   const dialectConnection = new Connection(RPC_URL, 'recent');
   const dialectProvider = new Provider(
     dialectConnection,

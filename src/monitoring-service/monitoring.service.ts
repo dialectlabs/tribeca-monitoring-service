@@ -1,4 +1,4 @@
-import { Connection, PublicKey } from '@solana/web3.js';
+import { Connection, PublicKey, Keypair } from '@solana/web3.js';
 import {
   Injectable,
   Logger,
@@ -27,8 +27,21 @@ import {
   SourceData,
 } from '@dialectlabs/monitor';
 import { Duration } from 'luxon';
+import {
+  SolanaProvider,
+} from "@saberhq/solana-contrib";
+import {
+  TribecaSDK,
+  GovernorWrapper,
+  GovernorData,
+  ProposalMetaData
+} from '@tribecahq/tribeca-sdk';
+import { Provider } from '@project-serum/anchor';
+import { Wallet_ } from '@dialectlabs/web3';
+import BN from 'bn.js';
 
 const mainnetPK = new PublicKey('GovER5Lthms3bLBqWub97yVrMmEogzX7xNjdXpPPCVZw');
+const sbrGovernorAddress = new PublicKey('9tnpMysuibKx6SatcH3CWR9ZsSRMBNeBf1mhfL6gAXR4');
 
 const connection = new Connection(
   process.env.REALMS_PRC_URL ?? process.env.RPC_URL!,
@@ -38,6 +51,11 @@ interface RealmData {
   realm: ProgramAccount<Realm>;
   proposals: ProgramAccount<Proposal>[];
   realmMembersSubscribedToNotifications: Record<string, PublicKey>;
+}
+
+interface DAOData {
+  govData: GovernorData;
+  proposalCount: number;
 }
 
 /*
@@ -57,12 +75,39 @@ When a proposal is added to a realm -
 5. Send out tweet for new proposal
 */
 
+const makeSDK = (): TribecaSDK => {
+  const PRIVATE_KEY = process.env.PRIVATE_KEY;
+  const keypair: Keypair = Keypair.fromSecretKey(
+    new Uint8Array(JSON.parse(PRIVATE_KEY as string)),
+  );
+  const wallet = Wallet_.embedded(keypair.secretKey);
+  const RPC_URL = process.env.RPC_URL || 'http://localhost:8899';
+  const dialectConnection = new Connection(RPC_URL, 'recent');
+  const dialectProvider = new Provider(
+    dialectConnection,
+    wallet,
+    Provider.defaultOptions(),
+  );
+
+  const provider = SolanaProvider.load({
+    connection: dialectProvider.connection,
+    sendConnection: dialectProvider.connection,
+    wallet: dialectProvider.wallet,
+    opts: dialectProvider.opts,
+  });
+  return TribecaSDK.load({
+    provider,
+  });
+};
+
 @Injectable()
 export class MonitoringService implements OnModuleInit, OnModuleDestroy {
   private readonly notificationSink: NotificationSink<TwitterNotification> =
     new TwitterNotificationsSink();
 
   private readonly logger = new Logger(MonitoringService.name);
+  private tribecaSDK = makeSDK();
+  private counter = 3;
 
   constructor(private readonly dialectConnection: DialectConnection) {}
 
@@ -79,42 +124,34 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
       monitorKeypair: this.dialectConnection.getKeypair(),
       dialectProgram: this.dialectConnection.getProgram(),
     })
-      .defineDataSource<RealmData>()
+      .defineDataSource<DAOData>()
       .poll(
-        async (subscribers) => this.getRealmsData(subscribers),
-        Duration.fromObject({ seconds: 60 }),
+        async () => this.getTribecaData(),
+        Duration.fromObject({ seconds: 5 }),
       )
-      .transform<ProgramAccount<Proposal>[], ProgramAccount<Proposal>[]>({
-        keys: ['proposals'],
-        pipelines: [Pipelines.added((p1, p2) => p1.pubkey.equals(p2.pubkey))],
+      .transform<number, number>({
+        keys: ['proposalCount'],
+        pipelines: [Pipelines.threshold(
+          {
+            type: 'increase',
+            threshold: 1,
+          },
+        ),],
       })
       .notify()
-      .dialectThread(
-        ({ value, context }) => {
-          const realmName: string = context.origin.realm.account.name;
-          const realmId: string = context.origin.realm.pubkey.toBase58();
-          const message: string = this.constructMessage(realmName, realmId, value);
-          this.logger.log(`Sending dialect message: ${message}`);
-          return {
-            message: message,
-          };
-        },
-        (
-          {
-            context: {
-              origin: { realmMembersSubscribedToNotifications },
-            },
-          },
-          recipient,
-        ) => !!realmMembersSubscribedToNotifications[recipient.toBase58()],
-      )
       .custom<TwitterNotification>(({ value, context }) => {
-        const realmName: string = context.origin.realm.account.name;
-        const realmId: string = context.origin.realm.pubkey.toBase58();
-        const message = this.constructMessage(realmName, realmId, value);
-        this.logger.log(`Sending tweet for ${realmName} : ${message}`);
+        console.log("value: ", value);
+        console.log("context: ", context);
+        const {trace} = context;
+        const triggerValues = trace.filter(data => data.type === 'trigger');
+        const previousValues = triggerValues[0].input;
+        const daoGovernorAddress = sbrGovernorAddress;
+
         return {
-          message,
+          prevTotal: previousValues[0],
+          curTotal: previousValues[1],
+          daoGovernorAddress,
+          tribecaSDK: this.tribecaSDK,
         };
       }, this.notificationSink)
       .and()
@@ -123,85 +160,22 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
     monitor.start();
   }
 
-  private constructMessage(
-    realmName: string,
-    realmId: string,
-    proposalsAdded: ProgramAccount<Proposal>[],
-  ): string {
-    return [
-      ...proposalsAdded.map(
-        (it) =>
-          `📜 New proposal for ${realmName}: https://realms.today/dao/${realmId}/proposal/${it.pubkey.toBase58()} -
-          ${
-            it.account.name
-          } added by ${
-            it.owner
-          }
-          `,
-      ),
-    ].join('\n');
-  }
+  private async getTribecaData(): Promise<SourceData<DAOData>[]> {
+    // TODO: This just fetches the governor data for SBR, extend this to all the DAOs on Tribeca
+    const govWrapper = new GovernorWrapper(this.tribecaSDK, sbrGovernorAddress);
 
-  private async getRealmsData(
-    subscribers: ResourceId[],
-  ): Promise<SourceData<RealmData>[]> {
-    this.logger.log(`Getting reals data for ${subscribers.length} subscribers`);
-    const realms = await getRealms(connection, mainnetPK);
-    const realmsPromises = realms.map(async (realm) => {
-      return {
-        realm: realm,
-        proposals: await MonitoringService.getProposals(realm),
-        tokenOwnerRecords: await getAllTokenOwnerRecords(
-          connection,
-          mainnetPK,
-          realm.pubkey,
-        ),
-      };
-    });
+    const govData = await govWrapper.data();
 
-    const subscribersSet = Object.fromEntries(
-      subscribers.map((it) => [it.toBase58(), it]),
-    );
+    console.log("this is the tribeca datA: ", govData);
 
-    this.logger.log(
-      `Getting all realms data for ${realmsPromises.length} realms`,
-    );
-    const realmsData = await Promise.all(realmsPromises);
-    this.logger.log(
-      `Completed getting all realms data for ${realmsData.length} realms`,
-    );
-    return realmsData.map((it) => {
-      const realmMembersSubscribedToNotifications: Record<string, PublicKey> =
-        process.env.TEST_MODE
-          ? Object.fromEntries(subscribers.map((it) => [it.toBase58(), it]))
-          : Object.fromEntries(
-              it.tokenOwnerRecords
-                .map((it) => it.account.governingTokenOwner)
-                .filter((it) => subscribersSet[it.toBase58()])
-                .map((it) => [it.toBase58(), it]),
-            );
-      const sourceData: SourceData<RealmData> = {
-        resourceId: it.realm.pubkey,
-        data: {
-          realm: it.realm,
-          proposals: it.proposals,
-          realmMembersSubscribedToNotifications,
-        },
-      };
-      return sourceData;
-    });
-  }
-
-  private static async getProposals(realm: ProgramAccount<Realm>) {
-    const proposals = (
-      await getAllProposals(connection, mainnetPK, realm.pubkey)
-    ).flat();
-    if (process.env.TEST_MODE) {
-      return proposals.slice(
-        0,
-        Math.round(Math.random() * Math.max(0, proposals.length - 3)),
-      );
-    }
-    return proposals;
+    const sourceData: SourceData<DAOData> = {
+      resourceId: govData.base,
+      data: {
+        proposalCount: govData.proposalCount.toNumber() - this.counter,
+        govData: govData,
+      },
+    };
+    this.counter -= 1;
+    return [sourceData];
   }
 }
