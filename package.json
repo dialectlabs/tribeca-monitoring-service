@@ -1,5 +1,5 @@
 {
-  "name": "@dialectlabs/realms-monitoring-service",
+  "name": "@dialectlabs/tribeca-monitoring-service",
   "version": "0.1.0",
   "author": "dialectlabs",
   "private": false,
@@ -45,6 +45,8 @@
     "axios": "^0.26.1",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.13.2",
+    "fetch": "^1.1.0",
+    "isomorphic-fetch": "^3.0.0",
     "jsbi": "^4.2.0",
     "luxon": "^2.3.0",
     "reflect-metadata": "^0.1.13",

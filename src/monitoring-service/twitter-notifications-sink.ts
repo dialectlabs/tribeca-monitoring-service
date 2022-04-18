@@ -14,6 +14,8 @@ export interface TwitterNotification {
   curTotal: number;
   daoGovernorAddress: PublicKey;
   tribecaSDK: TribecaSDK;
+  name: string;
+  slug: string;
 }
 
 const maxMsgLen = 250;
@@ -31,9 +33,10 @@ export class TwitterNotificationsSink
       accessSecret: process.env.TWITTER_ACCESS_SECRET,
     });
 
-  async push({ prevTotal, curTotal, daoGovernorAddress, tribecaSDK }: TwitterNotification): Promise<void> {
+  async push({ prevTotal, curTotal, daoGovernorAddress, tribecaSDK, name, slug }: TwitterNotification): Promise<void> {
     const newestProposals = await this.getNewestProposals(prevTotal, curTotal, daoGovernorAddress, tribecaSDK);
-    let message = this.constructMessage(newestProposals, prevTotal);
+    const filteredProposals: ProposalMetaData[] = newestProposals.filter((proposal): proposal is ProposalMetaData => proposal != null);
+    let message = this.constructMessage(filteredProposals, prevTotal, name, slug);
 
     let shortenedText = message.replace(/\s+/g, ' ').slice(0, maxMsgLen);
     // TODO: replace links with 23 characters (https://help.twitter.com/en/using-twitter/how-to-tweet-a-link)
@@ -48,11 +51,11 @@ export class TwitterNotificationsSink
         .tweet({
           text: shortenedText,
         })
-        .catch(() => this.logger.error(it)));
+        .catch((it) => this.logger.error(it)));
     return;
   }
 
-  async getNewestProposals(prevTotal: number, curTotal: number, daoGovernorAddress: PublicKey, tribecaSDK: TribecaSDK): Promise<ProposalMetaData[]> {
+  async getNewestProposals(prevTotal: number, curTotal: number, daoGovernorAddress: PublicKey, tribecaSDK: TribecaSDK): Promise<(ProposalMetaData | null)[]> {
     const govWrapper = new GovernorWrapper(tribecaSDK, daoGovernorAddress);
     const proposalPromises = [...Array(curTotal - prevTotal).keys()].map(async i =>
       await govWrapper.findProposalAddress(new BN(i + prevTotal))
@@ -60,7 +63,13 @@ export class TwitterNotificationsSink
 
     const proposals = await Promise.all(proposalPromises);
 
-    const proposalMetadataPromises = proposals.map(async proposal => await govWrapper.fetchProposalMeta(proposal));
+    const proposalMetadataPromises = proposals.map(async proposal => {
+      try {
+        return await govWrapper.fetchProposalMeta(proposal);
+      } catch {
+        return null;
+      }
+    });
     const proposalMetadatas = await Promise.all(proposalMetadataPromises);
 
     return proposalMetadatas;
@@ -69,11 +78,13 @@ export class TwitterNotificationsSink
   private constructMessage(
     proposals: ProposalMetaData[],
     prevTotal: number,
+    name: string,
+    slug: string,
   ): string {
     return [
       ...proposals.map(
         (proposal, i) =>
-          `📜 New proposal for Saber: https://tribeca.so/gov/sbr/proposals/${i + prevTotal} - ${proposal.title}`,
+          `📜 New proposal for ${name}: https://tribeca.so/gov/${slug}/proposals/${i + prevTotal} - ${proposal.title}`,
       ),
     ].join('\n');
   }

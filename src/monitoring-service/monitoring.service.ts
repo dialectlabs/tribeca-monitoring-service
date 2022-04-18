@@ -7,9 +7,6 @@ import {
 } from '@nestjs/common';
 import { DialectConnection } from './dialect-connection';
 import {
-  getAllProposals,
-  getAllTokenOwnerRecords,
-  getRealms,
   ProgramAccount,
   Proposal,
   Realm,
@@ -23,7 +20,6 @@ import {
   Monitors,
   NotificationSink,
   Pipelines,
-  ResourceId,
   SourceData,
 } from '@dialectlabs/monitor';
 import { Duration } from 'luxon';
@@ -34,11 +30,10 @@ import {
   TribecaSDK,
   GovernorWrapper,
   GovernorData,
-  ProposalMetaData
 } from '@tribecahq/tribeca-sdk';
 import { Provider } from '@project-serum/anchor';
 import { Wallet_ } from '@dialectlabs/web3';
-import BN from 'bn.js';
+require('isomorphic-fetch');
 
 const mainnetPK = new PublicKey('GovER5Lthms3bLBqWub97yVrMmEogzX7xNjdXpPPCVZw');
 const sbrGovernorAddress = new PublicKey('9tnpMysuibKx6SatcH3CWR9ZsSRMBNeBf1mhfL6gAXR4');
@@ -56,6 +51,9 @@ interface RealmData {
 interface DAOData {
   govData: GovernorData;
   proposalCount: number;
+  address: PublicKey;
+  name: string;
+  slug: string;
 }
 
 /*
@@ -140,18 +138,18 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
       })
       .notify()
       .custom<TwitterNotification>(({ value, context }) => {
-        console.log("value: ", value);
-        console.log("context: ", context);
         const {trace} = context;
         const triggerValues = trace.filter(data => data.type === 'trigger');
         const previousValues = triggerValues[0].input;
-        const daoGovernorAddress = sbrGovernorAddress;
+        const daoGovernorAddress = context.origin.address;
 
         return {
           prevTotal: previousValues[0],
           curTotal: previousValues[1],
           daoGovernorAddress,
           tribecaSDK: this.tribecaSDK,
+          name: context.origin.name,
+          slug: context.origin.slug,
         };
       }, this.notificationSink)
       .and()
@@ -161,21 +159,31 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async getTribecaData(): Promise<SourceData<DAOData>[]> {
-    // TODO: This just fetches the governor data for SBR, extend this to all the DAOs on Tribeca
-    const govWrapper = new GovernorWrapper(this.tribecaSDK, sbrGovernorAddress);
+    const data = await fetch('https://raw.githubusercontent.com/TribecaHQ/tribeca-registry-build/master/registry/governor-metas.mainnet.json');
+    const tribecaDataJson = await data.json();
 
-    const govData = await govWrapper.data();
+    let sourceData: SourceData<DAOData>[] = [];
 
-    console.log("this is the tribeca datA: ", govData);
+    for (const daoData of tribecaDataJson) {
+      const governorAddress = new PublicKey(daoData.address);
+      const govWrapper = new GovernorWrapper(this.tribecaSDK, governorAddress);
 
-    const sourceData: SourceData<DAOData> = {
-      resourceId: govData.base,
-      data: {
-        proposalCount: govData.proposalCount.toNumber() - this.counter,
-        govData: govData,
-      },
-    };
+      const govData = await govWrapper.data();
+
+      this.logger.log("Monitoring data for: ", daoData.name);
+
+      sourceData.push({
+        resourceId: governorAddress,
+        data: {
+          proposalCount: govData.proposalCount.toNumber() - this.counter,
+          govData: govData,
+          address: governorAddress,
+          name: daoData.name,
+          slug: daoData.slug,
+        },
+      });
+    }
     this.counter -= 1;
-    return [sourceData];
+    return sourceData;
   }
 }

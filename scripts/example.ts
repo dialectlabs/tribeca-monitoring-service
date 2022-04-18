@@ -8,6 +8,7 @@ import {
 } from "@saberhq/solana-contrib";
 import { Wallet_ } from '@dialectlabs/web3';
 import BN from "bn.js";
+require('isomorphic-fetch');
 
 const makeSDK = (): TribecaSDK => {
   const PRIVATE_KEY = process.env.PRIVATE_KEY;
@@ -40,18 +41,23 @@ async function run() {
     'Govz1VyoyLD5BL6CSCxUJLVLsQHRwjfFj1prNsdNg5Jw',
   );
 
+  const data = await fetch('https://raw.githubusercontent.com/TribecaHQ/tribeca-registry-build/master/registry/governor-metas.mainnet.json');
+  const tribecaDataJson = await data.json();
+
+  console.log(tribecaDataJson[0].name)
+
   const tribecaSDK = makeSDK();
 
   // console.log(tribecaSDK);
 
-  const sbrAddress = new PublicKey('9tnpMysuibKx6SatcH3CWR9ZsSRMBNeBf1mhfL6gAXR4');
+  // const sbrAddress = new PublicKey('9tnpMysuibKx6SatcH3CWR9ZsSRMBNeBf1mhfL6gAXR4');
 
   // const sbrGov = await findGovernorAddress(sbrAddress);
 
   // console.log('sbr address: 9tnpMysuibKx6SatcH3CWR9ZsSRMBNeBf1mhfL6gAXR4');
   // console.log('sbrgovaddr:', sbrGov[0].toBase58());
 
-  const govWrapper = new GovernorWrapper(tribecaSDK, sbrAddress);
+  const govWrapper = new GovernorWrapper(tribecaSDK, new PublicKey(tribecaDataJson[2].address));
 
   const govData = await govWrapper.data();
 
@@ -71,12 +77,19 @@ async function run() {
 
   console.log(proposals);
 
-  // console.log(proposals[0].instructions);
+  console.log(await govWrapper.fetchProposalMeta(proposals[3]));
 
-  const proposalMetadataPromises = proposals.slice(0, 10).map(async proposal => await govWrapper.fetchProposalMeta(proposal));
+  const proposalMetadataPromises = proposals.slice(0, 10).map(async proposal => {
+    try {
+      return await govWrapper.fetchProposalMeta(proposal);
+    } catch {
+      return null;
+    }
+  });
   const proposalMetadatas = await Promise.all(proposalMetadataPromises);
 
-  console.log(proposalMetadatas);
+  console.log(proposals.length)
+  console.log(proposalMetadatas.filter((proposal) => proposal != null).length);
 }
 
 run();
