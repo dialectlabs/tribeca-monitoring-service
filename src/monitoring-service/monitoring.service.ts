@@ -7,11 +7,6 @@ import {
 } from '@nestjs/common';
 import { DialectConnection } from './dialect-connection';
 import {
-  ProgramAccount,
-  Proposal,
-  Realm,
-} from '@solana/spl-governance';
-import {
   TwitterNotification,
   TwitterNotificationsSink,
 } from './twitter-notifications-sink';
@@ -35,19 +30,6 @@ import { Provider } from '@project-serum/anchor';
 import { Wallet_ } from '@dialectlabs/web3';
 require('isomorphic-fetch');
 
-const mainnetPK = new PublicKey('GovER5Lthms3bLBqWub97yVrMmEogzX7xNjdXpPPCVZw');
-const sbrGovernorAddress = new PublicKey('9tnpMysuibKx6SatcH3CWR9ZsSRMBNeBf1mhfL6gAXR4');
-
-const connection = new Connection(
-  process.env.REALMS_PRC_URL ?? process.env.RPC_URL!,
-);
-
-interface RealmData {
-  realm: ProgramAccount<Realm>;
-  proposals: ProgramAccount<Proposal>[];
-  realmMembersSubscribedToNotifications: Record<string, PublicKey>;
-}
-
 interface DAOData {
   govData: GovernorData;
   proposalCount: number;
@@ -57,20 +39,19 @@ interface DAOData {
 }
 
 /*
-Realms use case:
+Tribeca use case:
 When a proposal is added to a realm -
-1. send a tweet out
+1. Send a tweet out
 
 ---
 
 * global data fetch
-1. Fetch all realms
-2. Fetch all proposals
-
-* filter or detect diff
-3. Look for diffs in the proposals array
-4. When finding a proposal added or removed
-5. Send out tweet for new proposal
+1. Fetch all DAO info
+2. Fetch individual DAO info and total proposals
+3. Monitor the total proposal count
+4. Diff the proposal counts on changes and query
+   new indices for new proposal info
+5. Send tweet
 */
 
 const makeSDK = (): TribecaSDK => {
