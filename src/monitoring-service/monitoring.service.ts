@@ -86,7 +86,8 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
 
   private readonly logger = new Logger(MonitoringService.name);
   private tribecaSDK = makeSDK();
-  private counter = 3;
+  // Sets testModeCounter to simulate last proposals as new proposals
+  private testModeCounter = process.env.TEST_MODE ? 3 : 0;
 
   constructor(private readonly dialectConnection: DialectConnection) {}
 
@@ -151,12 +152,12 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
 
       const govData = await govWrapper.data();
 
-      this.logger.log("Monitoring data for: ", daoData.name);
+      this.logger.log(`Monitoring data for: ${daoData.name}`);
 
       sourceData.push({
         resourceId: governorAddress,
         data: {
-          proposalCount: govData.proposalCount.toNumber() - this.counter,
+          proposalCount: govData.proposalCount.toNumber() - this.testModeCounter,
           govData: govData,
           address: governorAddress,
           name: daoData.name,
@@ -164,7 +165,9 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
         },
       });
     }
-    this.counter -= 1;
+    if (process.env.TEST_MODE) {
+      this.testModeCounter -= 1;
+    }
     return sourceData;
   }
 }

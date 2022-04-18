@@ -45,6 +45,10 @@ export class TwitterNotificationsSink
     //   lastIndexOfSpace === -1
     //     ? shortenedText
     //     : shortenedText.slice(0, lastIndexOfSpace);
+    if (shortenedText.length === 0) {
+      this.logger.warn(`Could not generate message for: ${name} (${daoGovernorAddress.toBase58()}) from indices ${prevTotal} to ${curTotal}`);
+      return;
+    }
     this.logger.log(shortenedText);
     this.twitterClient &&
       (await this.twitterClient.v2
