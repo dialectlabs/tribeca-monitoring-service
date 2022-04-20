@@ -20,7 +20,7 @@
     "test:e2e": "jest --config ./test/jest-e2e.json"
   },
   "dependencies": {
-    "@dialectlabs/monitor": "^1.2.6",
+    "@dialectlabs/monitor": "^1.2.12",
     "@dialectlabs/web3": "^0.2.0",
     "@gokiprotocol/client": "^0.10.2",
     "@metaplex/js": "^4.12.0",

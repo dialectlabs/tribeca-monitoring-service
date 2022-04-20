@@ -1,11 +1,10 @@
-import { Connection, PublicKey, Keypair } from '@solana/web3.js';
+import { Connection, Keypair, PublicKey } from '@solana/web3.js';
 import {
   Injectable,
   Logger,
   OnModuleDestroy,
   OnModuleInit,
 } from '@nestjs/common';
-import { DialectConnection } from './dialect-connection';
 import {
   TwitterNotification,
   TwitterNotificationsSink,
@@ -18,16 +17,16 @@ import {
   SourceData,
 } from '@dialectlabs/monitor';
 import { Duration } from 'luxon';
+import { SolanaProvider } from '@saberhq/solana-contrib';
 import {
-  SolanaProvider,
-} from "@saberhq/solana-contrib";
-import {
-  TribecaSDK,
-  GovernorWrapper,
   GovernorData,
+  GovernorWrapper,
+  TribecaSDK,
 } from '@tribecahq/tribeca-sdk';
 import { Provider } from '@project-serum/anchor';
 import { Wallet_ } from '@dialectlabs/web3';
+import { NoopSubscriberRepository } from './noop-subscriber-repository';
+
 require('isomorphic-fetch');
 
 interface DAOData {
@@ -55,15 +54,12 @@ When a proposal is added to a realm -
 */
 
 const makeSDK = (): TribecaSDK => {
-  const PRIVATE_KEY = process.env.PRIVATE_KEY;
-  const keypair: Keypair = Keypair.fromSecretKey(
-    new Uint8Array(JSON.parse(PRIVATE_KEY as string)),
-  );
+  const keypair: Keypair = Keypair.generate();
   const wallet = Wallet_.embedded(keypair.secretKey);
   const RPC_URL = process.env.RPC_URL || 'http://localhost:8899';
-  const dialectConnection = new Connection(RPC_URL, 'recent');
+  const connection = new Connection(RPC_URL, 'recent');
   const dialectProvider = new Provider(
-    dialectConnection,
+    connection,
     wallet,
     Provider.defaultOptions(),
   );
@@ -89,8 +85,6 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
   // Sets testModeCounter to simulate last proposals as new proposals
   private testModeCounter = process.env.TEST_MODE ? 3 : 0;
 
-  constructor(private readonly dialectConnection: DialectConnection) {}
-
   async onModuleInit() {
     this.initMonitor();
   }
@@ -101,8 +95,7 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
 
   private initMonitor() {
     const monitor = Monitors.builder({
-      monitorKeypair: this.dialectConnection.getKeypair(),
-      dialectProgram: this.dialectConnection.getProgram(),
+      subscriberRepository: new NoopSubscriberRepository(),
     })
       .defineDataSource<DAOData>()
       .poll(
@@ -111,17 +104,17 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
       )
       .transform<number, number>({
         keys: ['proposalCount'],
-        pipelines: [Pipelines.threshold(
-          {
+        pipelines: [
+          Pipelines.threshold({
             type: 'increase',
             threshold: 1,
-          },
-        ),],
+          }),
+        ],
       })
       .notify()
       .custom<TwitterNotification>(({ value, context }) => {
-        const {trace} = context;
-        const triggerValues = trace.filter(data => data.type === 'trigger');
+        const { trace } = context;
+        const triggerValues = trace.filter((data) => data.type === 'trigger');
         const previousValues = triggerValues[0].input;
         const daoGovernorAddress = context.origin.address;
 
@@ -141,7 +134,9 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async getTribecaData(): Promise<SourceData<DAOData>[]> {
-    const data = await fetch('https://raw.githubusercontent.com/TribecaHQ/tribeca-registry-build/master/registry/governor-metas.mainnet.json');
+    const data = await fetch(
+      'https://raw.githubusercontent.com/TribecaHQ/tribeca-registry-build/master/registry/governor-metas.mainnet.json',
+    );
     const tribecaDataJson = await data.json();
 
     let sourceData: SourceData<DAOData>[] = [];
@@ -157,7 +152,8 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
       sourceData.push({
         resourceId: governorAddress,
         data: {
-          proposalCount: govData.proposalCount.toNumber() - this.testModeCounter,
+          proposalCount:
+            govData.proposalCount.toNumber() - this.testModeCounter,
           govData: govData,
           address: governorAddress,
           name: daoData.name,

@@ -3,9 +3,9 @@ import { Logger } from '@nestjs/common';
 import { NotificationSink } from '@dialectlabs/monitor';
 import { PublicKey } from '@solana/web3.js';
 import {
-  TribecaSDK,
   GovernorWrapper,
-  ProposalMetaData
+  ProposalMetaData,
+  TribecaSDK,
 } from '@tribecahq/tribeca-sdk';
 import BN from 'bn.js';
 
@@ -33,10 +33,29 @@ export class TwitterNotificationsSink
       accessSecret: process.env.TWITTER_ACCESS_SECRET,
     });
 
-  async push({ prevTotal, curTotal, daoGovernorAddress, tribecaSDK, name, slug }: TwitterNotification): Promise<void> {
-    const newestProposals = await this.getNewestProposals(prevTotal, curTotal, daoGovernorAddress, tribecaSDK);
-    const filteredProposals: ProposalMetaData[] = newestProposals.filter((proposal): proposal is ProposalMetaData => proposal != null);
-    let message = this.constructMessage(filteredProposals, prevTotal, name, slug);
+  async push({
+    prevTotal,
+    curTotal,
+    daoGovernorAddress,
+    tribecaSDK,
+    name,
+    slug,
+  }: TwitterNotification): Promise<void> {
+    const newestProposals = await this.getNewestProposals(
+      prevTotal,
+      curTotal,
+      daoGovernorAddress,
+      tribecaSDK,
+    );
+    const filteredProposals: ProposalMetaData[] = newestProposals.filter(
+      (proposal): proposal is ProposalMetaData => proposal != null,
+    );
+    let message = this.constructMessage(
+      filteredProposals,
+      prevTotal,
+      name,
+      slug,
+    );
 
     let shortenedText = message.replace(/\s+/g, ' ').slice(0, maxMsgLen);
     // TODO: replace links with 23 characters (https://help.twitter.com/en/using-twitter/how-to-tweet-a-link)
@@ -46,7 +65,9 @@ export class TwitterNotificationsSink
     //     ? shortenedText
     //     : shortenedText.slice(0, lastIndexOfSpace);
     if (shortenedText.length === 0) {
-      this.logger.warn(`Could not generate message for: ${name} (${daoGovernorAddress.toBase58()}) from indices ${prevTotal} to ${curTotal}`);
+      this.logger.warn(
+        `Could not generate message for: ${name} (${daoGovernorAddress.toBase58()}) from indices ${prevTotal} to ${curTotal}`,
+      );
       return;
     }
     this.logger.log(shortenedText);
@@ -59,15 +80,20 @@ export class TwitterNotificationsSink
     return;
   }
 
-  async getNewestProposals(prevTotal: number, curTotal: number, daoGovernorAddress: PublicKey, tribecaSDK: TribecaSDK): Promise<(ProposalMetaData | null)[]> {
+  async getNewestProposals(
+    prevTotal: number,
+    curTotal: number,
+    daoGovernorAddress: PublicKey,
+    tribecaSDK: TribecaSDK,
+  ): Promise<(ProposalMetaData | null)[]> {
     const govWrapper = new GovernorWrapper(tribecaSDK, daoGovernorAddress);
-    const proposalPromises = [...Array(curTotal - prevTotal).keys()].map(async i =>
-      await govWrapper.findProposalAddress(new BN(i + prevTotal))
+    const proposalPromises = [...Array(curTotal - prevTotal).keys()].map(
+      async (i) => await govWrapper.findProposalAddress(new BN(i + prevTotal)),
     );
 
     const proposals = await Promise.all(proposalPromises);
 
-    const proposalMetadataPromises = proposals.map(async proposal => {
+    const proposalMetadataPromises = proposals.map(async (proposal) => {
       try {
         return await govWrapper.fetchProposalMeta(proposal);
       } catch {
@@ -88,7 +114,9 @@ export class TwitterNotificationsSink
     return [
       ...proposals.map(
         (proposal, i) =>
-          `📜 New proposal for ${name}: https://tribeca.so/gov/${slug}/proposals/${i + prevTotal} - ${proposal.title}`,
+          `📜 New proposal for ${name}: https://tribeca.so/gov/${slug}/proposals/${
+            i + prevTotal
+          } - ${proposal.title}`,
       ),
     ].join('\n');
   }
