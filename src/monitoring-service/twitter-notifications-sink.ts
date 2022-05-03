@@ -46,6 +46,7 @@ export class TwitterNotificationsSink
       curTotal,
       daoGovernorAddress,
       tribecaSDK,
+      name,
     );
     const filteredProposals: ProposalMetaData[] = newestProposals.filter(
       (proposal): proposal is ProposalMetaData => proposal != null,
@@ -85,18 +86,22 @@ export class TwitterNotificationsSink
     curTotal: number,
     daoGovernorAddress: PublicKey,
     tribecaSDK: TribecaSDK,
+    name: string,
   ): Promise<(ProposalMetaData | null)[]> {
     const govWrapper = new GovernorWrapper(tribecaSDK, daoGovernorAddress);
-    const proposalPromises = [...Array(curTotal - prevTotal).keys()].map(
+    const indices = [...Array(curTotal - prevTotal).keys()];
+    const proposalPromises = indices.map(
       async (i) => await govWrapper.findProposalAddress(new BN(i + prevTotal)),
     );
 
+    this.logger.log(`Fetching proposals for indices ${indices.map(i => i + prevTotal)}`)
     const proposals = await Promise.all(proposalPromises);
 
     const proposalMetadataPromises = proposals.map(async (proposal) => {
       try {
         return await govWrapper.fetchProposalMeta(proposal);
       } catch {
+        this.logger.warn(`Failed to fetch proposal with key: ${proposal.toBase58()} from DAO: ${name}.`)
         return null;
       }
     });

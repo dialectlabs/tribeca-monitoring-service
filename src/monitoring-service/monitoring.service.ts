@@ -118,6 +118,8 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
         const previousValues = triggerValues[0].input;
         const daoGovernorAddress = context.origin.address;
 
+        this.logger.log(`Spotted a proposal count change for ${context.origin.name}. Proposal count: ${previousValues[0]} increased to ${previousValues[1]}`)
+
         return {
           prevTotal: previousValues[0],
           curTotal: previousValues[1],
@@ -147,7 +149,7 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
 
       const govData = await govWrapper.data();
 
-      this.logger.log(`Monitoring data for: ${daoData.name}`);
+      this.logger.log(`Monitoring data for: ${daoData.name}. Current proposal count: ${govData.proposalCount.toNumber()}`);
 
       sourceData.push({
         resourceId: governorAddress,
