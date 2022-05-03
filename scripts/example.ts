@@ -37,6 +37,12 @@ const makeSDK = (): TribecaSDK => {
   });
 };
 
+interface DaoType {
+  address: string;
+  name: string;
+  slug: string;
+}
+
 async function run() {
   const data = await fetch(
     'https://raw.githubusercontent.com/TribecaHQ/tribeca-registry-build/master/registry/governor-metas.mainnet.json',
@@ -47,29 +53,27 @@ async function run() {
 
   const tribecaSDK = makeSDK();
 
-  let govDataPromisesArray = [];
-  for (const daoData of tribecaDataJson) {
+  const govDataPromisesArray = tribecaDataJson.map(async (daoData: DaoType) => {
     const governorAddress = new PublicKey(daoData.address);
     const govWrapper = new GovernorWrapper(tribecaSDK, governorAddress);
 
     const govData = await govWrapper.data();
 
     console.log(`Monitoring data for: ${daoData.name}`);
-    console.log(daoData.proposals);
 
-    govDataPromisesArray.push({
+    return {
       govData: govData,
       daoData: daoData,
-    });
-  }
+    };
+  });
 
   const govDataArray = await Promise.all(govDataPromisesArray);
 
   console.log(govDataArray);
 
-  let proposalDetailPromises = [];
+  let proposalDetailPromises: any[] = [];
 
-  for (const govData of govDataArray) {
+  govDataArray.map(async (govData) => {
     const governorAddress = new PublicKey(govData.daoData.address);
     const govWrapper = new GovernorWrapper(tribecaSDK, governorAddress);
     let indices = [];
@@ -78,29 +82,29 @@ async function run() {
       indices.push(i);
     }
     console.log(govData.daoData.name, govData.daoData.slug);
-    console.log(indices);
     const proposalPromises = indices.map(async (i) => {
-      console.log('fetching data for: ', i);
       return await govWrapper.findProposalAddress(new BN(i));
     });
 
     const proposals = await Promise.all(proposalPromises);
 
-    console.log(proposals);
-    console.log(proposals.map((p) => p.toBase58()));
+    console.log(`fetched ${proposals.length} proposal public keys`);
 
-    for (const proposal of proposals) {
+    // ERROR
+    // When fetching for proposal meta
+    proposals.map(async (proposal) => {
       proposalDetailPromises.push({
-        proposalMeta: await govWrapper.fetchProposalMeta(proposal),
+        proposalMeta: await govWrapper.fetchProposalMeta(proposal), // Error here: Missing accounts are causing a failure
         daoData: govData.daoData,
         govData: govData.govData,
       });
-    }
-  }
+    });
+  });
 
   const proposalDetails = await Promise.all(proposalDetailPromises);
 
   console.log(proposalDetails);
+
 }
 
 run();
