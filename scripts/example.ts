@@ -1,13 +1,15 @@
 import { Connection, PublicKey, Keypair } from '@solana/web3.js';
 
-import { TribecaSDK, findGovernorAddress, GovernorWrapper } from '@tribecahq/tribeca-sdk';
-import {  } from '@tribecahq/registry';
-import { Provider } from '@project-serum/anchor';
 import {
-  SolanaProvider,
-} from "@saberhq/solana-contrib";
+  TribecaSDK,
+  findGovernorAddress,
+  GovernorWrapper,
+} from '@tribecahq/tribeca-sdk';
+import {} from '@tribecahq/registry';
+import { Provider } from '@project-serum/anchor';
+import { SolanaProvider } from '@saberhq/solana-contrib';
 import { Wallet_ } from '@dialectlabs/web3';
-import BN from "bn.js";
+import BN from 'bn.js';
 require('isomorphic-fetch');
 
 const makeSDK = (): TribecaSDK => {
@@ -36,60 +38,69 @@ const makeSDK = (): TribecaSDK => {
 };
 
 async function run() {
-  const connection = new Connection(process.env.RPC_URL!);
-  const programId = new PublicKey(
-    'Govz1VyoyLD5BL6CSCxUJLVLsQHRwjfFj1prNsdNg5Jw',
+  const data = await fetch(
+    'https://raw.githubusercontent.com/TribecaHQ/tribeca-registry-build/master/registry/governor-metas.mainnet.json',
   );
-
-  const data = await fetch('https://raw.githubusercontent.com/TribecaHQ/tribeca-registry-build/master/registry/governor-metas.mainnet.json');
   const tribecaDataJson = await data.json();
 
-  console.log(tribecaDataJson[0].name)
+  console.log(tribecaDataJson[0].name);
 
   const tribecaSDK = makeSDK();
 
-  // console.log(tribecaSDK);
+  let govDataPromisesArray = [];
+  for (const daoData of tribecaDataJson) {
+    const governorAddress = new PublicKey(daoData.address);
+    const govWrapper = new GovernorWrapper(tribecaSDK, governorAddress);
 
-  // const sbrAddress = new PublicKey('9tnpMysuibKx6SatcH3CWR9ZsSRMBNeBf1mhfL6gAXR4');
+    const govData = await govWrapper.data();
 
-  // const sbrGov = await findGovernorAddress(sbrAddress);
+    console.log(`Monitoring data for: ${daoData.name}`);
+    console.log(daoData.proposals);
 
-  // console.log('sbr address: 9tnpMysuibKx6SatcH3CWR9ZsSRMBNeBf1mhfL6gAXR4');
-  // console.log('sbrgovaddr:', sbrGov[0].toBase58());
+    govDataPromisesArray.push({
+      govData: govData,
+      daoData: daoData,
+    });
+  }
 
-  const govWrapper = new GovernorWrapper(tribecaSDK, new PublicKey(tribecaDataJson[2].address));
+  const govDataArray = await Promise.all(govDataPromisesArray);
 
-  const govData = await govWrapper.data();
+  console.log(govDataArray);
 
-  console.log(govData.proposalCount.toNumber());
+  let proposalDetailPromises = [];
 
-  // let proposals = [];
+  for (const govData of govDataArray) {
+    const governorAddress = new PublicKey(govData.daoData.address);
+    const govWrapper = new GovernorWrapper(tribecaSDK, governorAddress);
+    let indices = [];
 
-  // for (let i = 0; i < govData.proposalCount.toNumber(); i++) {
-  //   proposals.append(govWrapper.fetchProposal(new BN(i)));
-  // }
-
-  const proposalPromises = [...Array(govData.proposalCount.toNumber()).keys()].map(async i =>
-    await govWrapper.findProposalAddress(new BN(i))
-  );
-
-  const proposals = await Promise.all(proposalPromises);
-
-  console.log(proposals);
-
-  console.log(await govWrapper.fetchProposalMeta(proposals[3]));
-
-  const proposalMetadataPromises = proposals.slice(0, 10).map(async proposal => {
-    try {
-      return await govWrapper.fetchProposalMeta(proposal);
-    } catch {
-      return null;
+    for (let i = 1; i <= govData.govData.proposalCount.toNumber(); i++) {
+      indices.push(i);
     }
-  });
-  const proposalMetadatas = await Promise.all(proposalMetadataPromises);
+    console.log(govData.daoData.name, govData.daoData.slug);
+    console.log(indices);
+    const proposalPromises = indices.map(async (i) => {
+      console.log('fetching data for: ', i);
+      return await govWrapper.findProposalAddress(new BN(i));
+    });
 
-  console.log(proposals.length)
-  console.log(proposalMetadatas.filter((proposal) => proposal != null).length);
+    const proposals = await Promise.all(proposalPromises);
+
+    console.log(proposals);
+    console.log(proposals.map((p) => p.toBase58()));
+
+    for (const proposal of proposals) {
+      proposalDetailPromises.push({
+        proposalMeta: await govWrapper.fetchProposalMeta(proposal),
+        daoData: govData.daoData,
+        govData: govData.govData,
+      });
+    }
+  }
+
+  const proposalDetails = await Promise.all(proposalDetailPromises);
+
+  console.log(proposalDetails);
 }
 
 run();
