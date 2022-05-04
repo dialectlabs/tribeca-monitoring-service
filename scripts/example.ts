@@ -57,12 +57,10 @@ async function run() {
     const governorAddress = new PublicKey(daoData.address);
     const govWrapper = new GovernorWrapper(tribecaSDK, governorAddress);
 
-    const govData = await govWrapper.data();
-
     console.log(`Monitoring data for: ${daoData.name}`);
 
     return {
-      govData: govData,
+      govData: await govWrapper.data(),
       daoData: daoData,
     };
   });
@@ -71,40 +69,57 @@ async function run() {
 
   console.log(govDataArray);
 
-  let proposalDetailPromises: any[] = [];
+  let proposals: any[] = [];
 
-  govDataArray.map(async (govData) => {
+  for (const govData of govDataArray) {
     const governorAddress = new PublicKey(govData.daoData.address);
     const govWrapper = new GovernorWrapper(tribecaSDK, governorAddress);
     let indices = [];
 
     for (let i = 1; i <= govData.govData.proposalCount.toNumber(); i++) {
       indices.push(i);
-    }
-    console.log(govData.daoData.name, govData.daoData.slug);
-    const proposalPromises = indices.map(async (i) => {
-      return await govWrapper.findProposalAddress(new BN(i));
-    });
-
-    const proposals = await Promise.all(proposalPromises);
-
-    console.log(`fetched ${proposals.length} proposal public keys`);
-
-    // ERROR
-    // When fetching for proposal meta
-    proposals.map(async (proposal) => {
-      proposalDetailPromises.push({
-        proposalMeta: await govWrapper.fetchProposalMeta(proposal), // Error here: Missing accounts are causing a failure
+      proposals.push({
+        proposal: await govWrapper.findProposalAddress(new BN(i)),
         daoData: govData.daoData,
         govData: govData.govData,
+        govWrapper: govWrapper,
       });
-    });
+    }
+  }
+
+  console.log('proposalPromises: ', proposals);
+
+  console.log(`fetched ${proposals.length} proposal public keys`);
+
+  const proposalDetailPromises = proposals.map(async (proposal) => {
+    try {
+      return {
+        proposalPk: proposal.proposal,
+        proposalMeta: await proposal.govWrapper.fetchProposalMeta(
+          proposal.proposal,
+        ),
+        daoData: proposal.daoData,
+        govData: proposal.govData,
+      };
+    } catch {
+      console.log(
+        `Failed to fetch proposal with key: ${proposal.proposal.toBase58()} from DAO: ${
+          proposal.daoData.name
+        }.`,
+      );
+      return null;
+    }
   });
 
   const proposalDetails = await Promise.all(proposalDetailPromises);
 
-  console.log(proposalDetails);
+  const filteredProposals = proposalDetails.filter(
+    (proposal) => proposal != null,
+  );
 
+  console.log('proposalDetails: ', proposalDetails);
+  console.log('proposalDetails length: ', filteredProposals.length);
+  console.log('we are at the end');
 }
 
 run();

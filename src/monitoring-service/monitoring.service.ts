@@ -8,6 +8,7 @@ import {
 import {
   TwitterNotification,
   TwitterNotificationsSink,
+  TwitterNotificationSinkNew,
 } from './twitter-notifications-sink';
 
 import {
@@ -26,6 +27,7 @@ import {
 import { Provider } from '@project-serum/anchor';
 import { Wallet_ } from '@dialectlabs/web3';
 import { NoopSubscriberRepository } from './noop-subscriber-repository';
+import BN from 'bn.js';
 
 require('isomorphic-fetch');
 
@@ -35,6 +37,33 @@ interface DAOData {
   address: PublicKey;
   name: string;
   slug: string;
+}
+
+interface DaoType {
+  address: string;
+  name: string;
+  slug: string;
+}
+
+interface GovType {
+  proposalCount: BN;
+}
+
+interface ProposalMetaType {
+  title: string;
+  descriptionLink: string;
+}
+
+interface ProposalData {
+  proposalPk: PublicKey;
+  proposalMeta: ProposalMetaType;
+  govData: GovType;
+  daoData: DaoType;
+  index: number;
+}
+
+interface ProposalWrapper {
+  proposals: ProposalData[];
 }
 
 /*
@@ -80,13 +109,17 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
   private readonly notificationSink: NotificationSink<TwitterNotification> =
     new TwitterNotificationsSink();
 
+  private readonly notificationSinkNew: NotificationSink<{ message: string }> =
+    new TwitterNotificationSinkNew();
+
   private readonly logger = new Logger(MonitoringService.name);
   private tribecaSDK = makeSDK();
   // Sets testModeCounter to simulate last proposals as new proposals
   private testModeCounter = process.env.TEST_MODE ? 3 : 0;
 
   async onModuleInit() {
-    this.initMonitor();
+    // this.initMonitor();
+    this.monitorProposalChanges();
   }
 
   async onModuleDestroy() {
@@ -118,7 +151,9 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
         const previousValues = triggerValues[0].input;
         const daoGovernorAddress = context.origin.address;
 
-        this.logger.log(`Spotted a proposal count change for ${context.origin.name}. Proposal count: ${previousValues[0]} increased to ${previousValues[1]}`)
+        this.logger.log(
+          `Spotted a proposal count change for ${context.origin.name}. Proposal count: ${previousValues[0]} increased to ${previousValues[1]}`,
+        );
 
         return {
           prevTotal: previousValues[0],
@@ -129,6 +164,40 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
           slug: context.origin.slug,
         };
       }, this.notificationSink)
+      .and()
+      .dispatch('broadcast')
+      .build();
+    monitor.start();
+  }
+
+  private monitorProposalChanges() {
+    const monitor = Monitors.builder({
+      subscriberRepository: new NoopSubscriberRepository(),
+    })
+      .defineDataSource<ProposalWrapper>()
+      .poll(
+        async () => this.fetchAllProposals(),
+        Duration.fromObject({ seconds: 5 }),
+      )
+      .transform<ProposalData[], ProposalData[]>({
+        keys: ['proposals'],
+        pipelines: [
+          Pipelines.added((p1, p2) => p1.proposalPk.equals(p2.proposalPk)),
+        ],
+      })
+      .notify()
+      .custom<{ message: string }>(({ value }) => {
+        const message = [
+          ...value.map(
+            (proposal, i) =>
+              `📜 New proposal for ${proposal.daoData.name}: https://tribeca.so/gov/${proposal.daoData.slug}/proposals/${proposal.index} - ${proposal.proposalMeta.title}`,
+          ),
+        ].join('\n');
+
+        return {
+          message,
+        };
+      }, this.notificationSinkNew)
       .and()
       .dispatch('broadcast')
       .build();
@@ -149,7 +218,11 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
 
       const govData = await govWrapper.data();
 
-      this.logger.log(`Monitoring data for: ${daoData.name}. Current proposal count: ${govData.proposalCount.toNumber()}`);
+      this.logger.log(
+        `Monitoring data for: ${
+          daoData.name
+        }. Current proposal count: ${govData.proposalCount.toNumber()}`,
+      );
 
       sourceData.push({
         resourceId: governorAddress,
@@ -167,5 +240,92 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
       this.testModeCounter -= 1;
     }
     return sourceData;
+  }
+
+  private async fetchAllProposals(): Promise<SourceData<ProposalWrapper>[]> {
+    const data = await fetch(
+      'https://raw.githubusercontent.com/TribecaHQ/tribeca-registry-build/master/registry/governor-metas.mainnet.json',
+    );
+    const tribecaDataJson = await data.json();
+
+    const tribecaSDK = makeSDK();
+
+    const govDataPromisesArray: Promise<{
+      govData: GovType;
+      daoData: DaoType;
+    }>[] = tribecaDataJson.map(async (daoData: DaoType) => {
+      const governorAddress = new PublicKey(daoData.address);
+      const govWrapper = new GovernorWrapper(tribecaSDK, governorAddress);
+
+      this.logger.log(`Monitoring data for: ${daoData.name}`);
+
+      return {
+        govData: await govWrapper.data(),
+        daoData: daoData,
+      };
+    });
+
+    const govDataArray = await Promise.all(govDataPromisesArray);
+
+    let proposals: {
+      proposal: PublicKey;
+      daoData: DaoType;
+      govData: GovType;
+      govWrapper: GovernorWrapper;
+      index: number;
+    }[] = [];
+
+    for (const govData of govDataArray) {
+      const governorAddress = new PublicKey(govData.daoData.address);
+      const govWrapper = new GovernorWrapper(tribecaSDK, governorAddress);
+
+      for (let i = 1; i <= govData.govData.proposalCount.toNumber(); i++) {
+        proposals.push({
+          proposal: await govWrapper.findProposalAddress(new BN(i)),
+          daoData: govData.daoData,
+          govData: govData.govData,
+          govWrapper: govWrapper,
+          index: i,
+        });
+      }
+      this.logger.log(`Fetched ${govData.govData.proposalCount.toNumber()} proposal public keys for ${govData.daoData.name}`);
+    }
+
+    const proposalDetailPromises: Promise<ProposalData | null>[] =
+      proposals.map(async (proposal) => {
+        try {
+          return {
+            proposalPk: proposal.proposal,
+            proposalMeta: await proposal.govWrapper.fetchProposalMeta(
+              proposal.proposal,
+            ),
+            daoData: proposal.daoData,
+            govData: proposal.govData,
+            index: proposal.index,
+          };
+        } catch {
+          this.logger.log(
+            `Failed to fetch proposal with key: ${proposal.proposal.toBase58()} from DAO: ${
+              proposal.daoData.name
+            }. Skipping this fetch.`,
+          );
+          return null;
+        }
+      });
+
+    const proposalDetails = await Promise.all(proposalDetailPromises);
+
+    const proposalResults: ProposalData[] = proposalDetails.filter(
+      (proposal): proposal is ProposalData => proposal != null,
+    );
+
+    return [
+      {
+        resourceId: new PublicKey(proposalResults[0].daoData.address),
+        data: {
+          proposals: proposalResults,
+        },
+      },
+    ];
   }
 }
